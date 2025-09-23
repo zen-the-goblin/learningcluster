@@ -1,29 +1,35 @@
-# Raspberry Pi Boot and SSH Troubleshooting Guide
+# Raspberry Pi Cluster Troubleshooting Guide
 
-## Problem: Cannot SSH into Raspberry Pi
+## Problem Categories Overview
 
-When you can't connect to your Pi via SSH, work through these troubleshooting steps systematically:
+This guide covers troubleshooting for modern Pi cluster deployments including SSH connectivity, Docker services, Home Assistant integration, display configuration, and cluster networking.
 
-## Step 1: Verify Basic Network Connectivity
+## Basic SSH and Network Connectivity
 
-### Check if Pi is on the network
+### Cannot SSH into Raspberry Pi
+
+When you can't connect to your Pi via SSH, work through these steps systematically:
+
+#### Step 1: Verify Basic Network Connectivity
+
+**Check if Pi is on the network:**
 ```bash
 # From your dev machine, scan the network
 nmap -sn 192.168.1.0/24 | grep -E "Nmap scan report|MAC Address"
 
 # Or try pinging the expected IP
-ping 192.168.1.10  # Replace with your Pi's IP
+ping [PI_IP_ADDRESS]
 ```
 
-### Check your router/network admin interface
+**Check your router/network admin interface:**
 - Log into your router (usually 192.168.1.1 or 192.168.0.1)
 - Look for connected devices
 - Check DHCP lease table for new devices
 - Note if the Pi appears with a different IP than expected
 
-## Step 2: Physical Connection Verification
+#### Step 2: Physical Connection Verification
 
-### Power Supply Check
+**Power Supply Check:**
 ```bash
 # Signs of inadequate power:
 # - Random reboots
@@ -33,34 +39,29 @@ ping 192.168.1.10  # Replace with your Pi's IP
 ```
 
 **Power Requirements:**
-- Pi 5: 5V/5A (25W) USB-C minimum
+- Pi 5: 5V/5A (27W) USB-C minimum for full load
 - Pi 4: 5V/3A (15W) USB-C minimum
 - Check power LED status (should be solid, not flickering)
 
-### Network Cable and Switch/Router Ports
+**Network Hardware:**
 - Try different ethernet cable
 - Try different port on switch/router
 - Check cable connection at both ends
 - Verify link lights on network equipment
 
-### SD Card Issues
-- Remove and reseat SD card
-- Check for physical damage
-- Try SD card in another device to verify it's readable
+#### Step 3: Monitor Boot Process via HDMI
 
-## Step 3: Monitor Connection via HDMI
-
-### Required Hardware
-- Mini-HDMI to HDMI cable (Pi 4) or Micro-HDMI to HDMI cable (Pi 5)
+**Required Hardware:**
+- Micro-HDMI to HDMI cable (Pi 5) or Mini-HDMI (Pi 4)
 - Monitor or TV with HDMI input
 - USB keyboard for interaction
 
-### What to Look For
+**Boot Sequence Indicators:**
 ```bash
-# Boot sequence should show:
-1. Rainbow screen (indicates Pi is starting)
+# Normal boot should show:
+1. Rainbow screen (indicates Pi hardware is working)
 2. Boot messages scrolling
-3. Cloud-init configuration (if using Ubuntu Server)
+3. Cloud-init configuration (Ubuntu Server)
 4. Login prompt
 
 # Error indicators:
@@ -70,211 +71,481 @@ ping 192.168.1.10  # Replace with your Pi's IP
 - Login prompt but wrong credentials → User setup issue
 ```
 
-### Ubuntu Server First Boot
+#### Step 4: Ubuntu Server First Boot Process
+
 ```bash
 # Default credentials for fresh Ubuntu Server:
 Username: ubuntu
 Password: ubuntu
 
 # System will force password change on first login
-# After password change, you can:
+# After password change:
 1. Configure networking
-2. Set up SSH keys
+2. Set up SSH keys  
 3. Create additional users
+4. Install necessary packages
 ```
 
-## Step 4: SD Card Reflashing Process
+## Docker and Container Issues
 
-### When to Reflash
-- Boot failures or corruption errors
-- Unable to access with any credentials
-- Pi Imager customization didn't work properly
-- File system errors during boot
+### Docker Permission Problems
 
-### Reflashing Steps
+**"Permission denied" when running docker commands:**
 ```bash
-1. Download fresh Raspberry Pi OS or Ubuntu Server image
-2. Use Raspberry Pi Imager with these settings:
-   - Choose your Pi model
-   - Select operating system
-   - Configure settings (gear icon):
-     * Enable SSH (password or key authentication)
-     * Set username and password
-     * Configure WiFi (if needed)
-     * Set locale settings
+# Check if user is in docker group
+groups $USER
 
-3. Flash to SD card
-4. Safely eject and insert into Pi
-5. Power on and wait for boot completion
+# Add user to docker group if missing
+sudo usermod -aG docker $USER
+
+# Log out and back in for group changes to take effect
+exit
+# SSH back in and test
+docker --version
+docker ps
 ```
 
-### Pi Imager Configuration Tips
+### Container Networking Issues
+
+**Containers can't reach network or each other:**
 ```bash
-# For reliable setup:
-- Use password authentication initially (easier troubleshooting)
-- Set simple, known password for first boot
-- Enable SSH in Services tab
-- Don't set complex configurations on first attempt
+# Check Docker daemon status
+sudo systemctl status docker
+
+# Inspect Docker networks
+docker network ls
+docker network inspect bridge
+
+# Check if containers are using host networking
+docker ps --format "table {{.Names}}\t{{.Ports}}\t{{.Networks}}"
+
+# Test container connectivity
+docker exec -it container_name ping 8.8.8.8
 ```
 
-## Step 5: Network Configuration Troubleshooting
-
-### Static IP Issues
-If you configured static IP but can't connect:
-
+**Port conflicts between services:**
 ```bash
-# Connect via HDMI and keyboard, then check:
-ip addr show                    # See current IP configuration
-ping 192.168.1.1               # Test gateway connectivity
-systemctl status networking    # Check networking service
+# Check what's using specific ports
+sudo netstat -tulpn | grep :8123
+sudo lsof -i :9090
 
-# Common static IP problems:
-- Wrong subnet (192.168.1.x vs 192.168.0.x)
-- Incorrect gateway IP
-- DNS server issues
-- Netplan configuration syntax errors
+# Kill processes using conflicting ports
+sudo kill -9 [PID]
+
+# Or change port configuration in docker-compose.yml
 ```
 
-### DHCP vs Static IP Conflicts
+### Docker Compose Problems
+
+**"docker compose" command not found:**
 ```bash
-# If DHCP assigned different IP than expected:
-1. Check router DHCP range
-2. Verify static IP is outside DHCP range
-3. Check for IP address conflicts
+# Check Docker Compose installation
+docker compose version
 
-# Find Pi's actual IP from HDMI console:
-hostname -I                     # Show current IP address
+# If missing, install Docker Compose plugin
+sudo apt update
+sudo apt install docker-compose-plugin
+
+# Alternative: use docker-compose (dash version)
+docker-compose version
 ```
 
-## Step 6: SSH Service Troubleshooting
-
-### SSH Not Running
+**Container won't start or crashes immediately:**
 ```bash
-# Connect via HDMI, then check SSH service:
-sudo systemctl status ssh
-sudo systemctl start ssh        # Start if stopped
-sudo systemctl enable ssh       # Enable at boot
+# Check container logs
+docker compose logs service_name
+docker logs container_name
 
-# Check SSH configuration:
-sudo nano /etc/ssh/sshd_config
-# Verify these settings:
-# Port 22
-# PermitRootLogin no (or yes for troubleshooting)
-# PasswordAuthentication yes (for initial setup)
+# Check resource usage
+docker stats
+
+# Verify volume mounts and permissions
+ls -la ~/homeassistant/config
 ```
 
-### SSH Key Authentication Issues
+## Home Assistant Specific Issues
+
+### Container Startup Problems
+
+**Home Assistant container fails to start:**
 ```bash
-# If password auth works but keys don't:
-1. Verify key was copied correctly
-2. Check ~/.ssh/authorized_keys permissions (600)
-3. Check ~/.ssh directory permissions (700)
-4. Verify SSH client is using correct key file
+# Check logs for specific errors
+docker compose logs -f homeassistant
 
-# Test from client:
-ssh -v user@pi_ip              # Verbose output for debugging
-ssh -i ~/.ssh/specific_key user@pi_ip
+# Common issues and solutions:
+# - Port 8123 already in use: Change port or kill conflicting process
+# - Permission issues: Check config directory ownership
+# - Memory issues: Ensure adequate RAM available
+
+# Verify container configuration
+docker compose config
 ```
 
-## Step 7: Systematic Troubleshooting Approach
+**Configuration directory issues:**
+```bash
+# Check permissions on Home Assistant config
+ls -la ~/homeassistant/
+sudo chown -R $USER:$USER ~/homeassistant/config/
 
-### Layer 1: Physical
-- Power supply adequate
-- SD card properly seated
-- Network cable connected
-- Link lights active on network equipment
+# Verify volume mounting
+docker inspect homeassistant | grep -A 10 "Mounts"
+```
 
-### Layer 2: Boot Process
-- Pi boots successfully (check via HDMI)
-- Operating system loads
-- Network services start
-- SSH daemon running
+### Camera Integration Failures
 
-### Layer 3: Network
-- Pi gets IP address (DHCP or static)
-- Can ping gateway
-- Can ping from other devices on network
-- DNS resolution working
+**Cannot connect to TP-Link Tapo cameras:**
+```bash
+# Common camera connection issues:
 
-### Layer 4: SSH Access
-- SSH service running and enabled
-- Correct port (usually 22)
-- Authentication method working
-- Firewall not blocking connections
+1. Third-party access not enabled in Tapo app
+   - Open Tapo app → Camera → Advanced → Camera Account
+   - Create local account for Home Assistant
+   - Enable third-party compatibility
+
+2. Wrong RTSP URL format
+   - Try: rtsp://username:password@camera_ip:554/live/ch00_0
+   - Try: rtsp://username:password@camera_ip:554/stream1
+   - Try: rtsp://username:password@camera_ip/stream1
+
+3. Network connectivity
+   - Test: ping camera_ip
+   - Verify camera is on same subnet as Pi
+
+4. Authentication timeout/blocking
+   - Wait 30 minutes for camera security timeout
+   - Reset camera if persistent issues
+```
+
+**Camera authentication errors:**
+```bash
+# Debug camera connectivity
+# Test RTSP stream manually:
+ffmpeg -i "rtsp://username:password@camera_ip:554/live/ch00_0" -t 5 test.mp4
+
+# Check camera web interface (if available)
+curl -I http://camera_ip
+```
+
+### Dashboard Creation Issues
+
+**"No views in dashboard" error:**
+```bash
+# Correct dashboard creation workflow:
+1. Create new dashboard from scratch (not using templates)
+2. Add areas for organization (Camera Feeds, System Info, etc.)
+3. Add entities to areas rather than individual cards
+4. Use area-based organization for simpler management
+
+# If dashboard is broken:
+1. Delete problematic dashboard
+2. Start fresh with blank dashboard
+3. Create areas first, then populate with entities
+```
+
+**System Monitor integration not appearing:**
+```bash
+# Add System Monitor through UI, not YAML
+# Settings → Devices & Services → Add Integration
+# Search for "System Monitor"
+
+# If sensors don't appear in dashboard:
+1. Check Developer Tools → States
+2. Look for entities starting with "sensor."
+3. Manually add entities by typing exact names in dashboard
+```
+
+## Display and GUI Configuration Issues
+
+### Desktop Environment Problems
+
+**Ubuntu desktop won't start after installation:**
+```bash
+# Check if desktop packages installed correctly
+dpkg -l | grep ubuntu-desktop-minimal
+
+# Verify display manager status
+sudo systemctl status gdm3
+
+# Force start desktop
+sudo systemctl start gdm3
+sudo systemctl enable gdm3
+
+# Check for display driver issues
+dmesg | grep -i display
+```
+
+**Display resolution issues:**
+```bash
+# Check current resolution
+xrandr
+
+# For Pi-specific display issues:
+# Edit boot configuration
+sudo nano /boot/firmware/config.txt
+
+# Add or modify display settings:
+# hdmi_force_hotplug=1
+# hdmi_group=2
+# hdmi_mode=82  # 1920x1080 60Hz
+# hdmi_drive=2
+```
+
+### Kiosk Mode Configuration
+
+**Firefox kiosk mode not starting automatically:**
+```bash
+# Check autostart file exists and is correct
+ls -la ~/.config/autostart/
+cat ~/.config/autostart/homeassistant-kiosk.desktop
+
+# Verify autostart file permissions
+chmod +x ~/.config/autostart/homeassistant-kiosk.desktop
+
+# Test manual kiosk launch
+firefox --kiosk http://localhost:8123
+
+# Check for conflicting desktop sessions
+ps aux | grep firefox
+```
+
+**Display timeout or screen blanking:**
+```bash
+# Disable screen blanking for kiosk mode
+# Add to autostart or .bashrc:
+xset s off
+xset -dpms
+xset s noblank
+
+# For persistent setting, edit:
+sudo nano /etc/xdg/autostart/disable-screensaver.desktop
+```
+
+## Cluster Integration Issues
+
+### Node Exporter Connectivity
+
+**Prometheus can't scrape metrics from nodes:**
+```bash
+# Check node_exporter status on target node
+sudo systemctl status node_exporter
+
+# Test metrics endpoint manually
+curl http://localhost:9100/metrics
+
+# From monitoring node, test connectivity
+curl http://target_node_ip:9100/metrics
+
+# Check firewall rules
+sudo ufw status
+```
+
+**Prometheus target discovery issues:**
+```bash
+# Verify Prometheus configuration
+sudo nano /etc/prometheus/prometheus.yml
+
+# Check Prometheus targets status
+# Access: http://prometheus_ip:9090
+# Go to Status → Targets
+
+# Restart Prometheus after config changes
+sudo systemctl restart prometheus
+```
+
+### NFS Mount Failures
+
+**Cannot mount NFS shares between nodes:**
+```bash
+# On NFS server, check exports
+sudo exportfs -v
+sudo systemctl status nfs-kernel-server
+
+# On client, test NFS connectivity
+showmount -e nfs_server_ip
+
+# Manual mount test
+sudo mount -t nfs nfs_server_ip:/srv/nfs/shared /mnt/test
+
+# Check for network/firewall issues
+sudo ufw allow from cluster_subnet to any port nfs
+```
+
+**NFS performance issues:**
+```bash
+# Check NFS mount options
+mount | grep nfs
+
+# Optimize NFS mount options in /etc/fstab
+nfs_server:/path /mount/point nfs defaults,rsize=8192,wsize=8192,timeo=14,intr 0 0
+```
+
+## Pi 5 Specific Issues
+
+### Power and Performance
+
+**Pi 5 power delivery problems:**
+```bash
+# Check for undervoltage warnings
+dmesg | grep -i voltage
+vcgencmd get_throttled
+
+# Monitor power status
+vcgencmd measure_volts core
+vcgencmd measure_temp
+
+# Ensure adequate power supply (5V/5A minimum)
+# Use official Pi 5 power supply for reliability
+```
+
+### NVMe HAT Integration
+
+**NVMe SSD not detected:**
+```bash
+# Check if NVMe is detected
+lsblk
+dmesg | grep nvme
+
+# Verify PCIe configuration
+lspci | grep -i nvme
+
+# Enable PCIe in boot config if needed
+sudo nano /boot/firmware/config.txt
+# Add: dtparam=pciex1
+
+# Check NVMe health
+sudo smartctl -a /dev/nvme0n1
+```
+
+### Cooling and Thermal Management
+
+**Pi 5 overheating issues:**
+```bash
+# Monitor temperature continuously
+watch vcgencmd measure_temp
+
+# Check thermal throttling
+vcgencmd get_throttled
+# 0x0 = no issues
+# 0x50000 = currently throttled
+
+# Verify cooling solution:
+# - Active cooling fan operational
+# - Thermal pads properly installed
+# - Case ventilation adequate
+```
+
+## Advanced Troubleshooting Techniques
+
+### System Resource Analysis
+
+**High CPU or memory usage:**
+```bash
+# Monitor system resources
+htop
+iotop
+iostat 5
+
+# Check Docker container resources
+docker stats
+
+# Analyze system load
+uptime
+cat /proc/loadavg
+
+# Check for memory leaks
+sudo dmesg | grep -i "out of memory"
+```
+
+### Network Diagnostics
+
+**Comprehensive network testing:**
+```bash
+# Test basic connectivity
+ping -c 4 gateway_ip
+ping -c 4 8.8.8.8
+
+# DNS resolution test
+nslookup google.com
+dig google.com
+
+# Port connectivity testing
+telnet target_ip 22
+nc -zv target_ip 22
+
+# Network interface analysis
+ip addr show
+ip route show
+```
+
+### Log Analysis
+
+**Systematic log investigation:**
+```bash
+# System logs
+sudo journalctl -f
+sudo journalctl -u service_name -f
+
+# Container logs
+docker logs container_name --follow
+docker compose logs -f
+
+# System messages
+tail -f /var/log/syslog
+dmesg | tail -20
+
+# Authentication logs
+sudo tail -f /var/log/auth.log
+```
 
 ## Emergency Recovery Procedures
 
-### Complete Recovery Process
+### Complete System Recovery
+
+**When all else fails:**
 ```bash
 1. Power down Pi safely
-2. Remove SD card
-3. Flash fresh image with Pi Imager
-4. Use simple configuration:
-   - Password authentication only
-   - Known simple password
-   - SSH enabled
-5. Boot with HDMI connected
-6. Verify network connectivity at console
-7. Test SSH from another machine
-8. Reconfigure as needed
+2. Remove SD card and backup if possible
+3. Flash fresh OS image with Pi Imager
+4. Use minimal configuration:
+   - Enable SSH with password authentication
+   - Set known username/password
+   - Configure basic network settings
+5. Boot with HDMI connected to monitor progress
+6. Verify basic connectivity before advanced configuration
+7. Restore from backups incrementally
 ```
 
-### Backup Prevention
+### Backup and Prevention
+
+**Create recovery images:**
 ```bash
-# After getting Pi working:
-1. Create backup image of working SD card
-2. Document working configuration
-3. Test backup/restore process
-4. Keep known-good image for quick recovery
+# Create backup of working SD card
+sudo dd if=/dev/sdX of=pi_backup.img bs=4M status=progress
+
+# Compress backup image
+gzip pi_backup.img
+
+# Restore from backup
+sudo dd if=pi_backup.img.gz of=/dev/sdX bs=4M status=progress
 ```
 
-## Common Error Patterns and Solutions
+## Troubleshooting Workflow
 
-### "Connection Refused"
-- SSH service not running
-- Wrong port number
-- Firewall blocking connections
+### Systematic Approach
 
-### "No Route to Host"
-- Pi not on network
-- Wrong IP address
-- Network configuration issue
+**Layer-by-layer diagnosis:**
+1. **Physical**: Power, cables, hardware connections
+2. **Boot**: OS loads, services start, login available
+3. **Network**: IP assignment, connectivity, DNS resolution
+4. **Services**: Docker running, containers healthy, ports accessible
+5. **Application**: Home Assistant, cameras, integrations working
 
-### "Permission Denied (publickey)"
-- SSH key not properly installed
-- Wrong key file being used
-- Key permissions incorrect
-
-### "Connection Timeout"
-- Pi not responding
-- Network connectivity issues
-- Pi may be powered off
-
-### Boot Loops or Kernel Panics
-- Corrupted SD card or image
-- Inadequate power supply
-- Hardware failure
-
-## Prevention Best Practices
-
-### Initial Setup
-- Always use adequate power supply
-- Use quality SD cards (Class 10 or better)
-- Test basic connectivity before complex configuration
-- Document working configurations
-
-### Ongoing Maintenance
-- Regular system updates
-- Monitor system logs for warnings
-- Keep backup images of working systems
-- Test SSH access after any network changes
-
-### Hardware Considerations
-- Use proper cooling for sustained loads
-- Secure all connections
-- Protect against power fluctuations
-- Use quality network cables
+**Documentation practices:**
+- Record working configurations
+- Document changes that break functionality
+- Keep command history of troubleshooting steps
+- Maintain backup images of stable systems
 
 ---
 
-**Remember**: Work through steps systematically. Don't skip ahead - physical and basic network connectivity must work before SSH troubleshooting is productive.
+**Key Principle**: Work systematically through layers. Don't skip steps - each layer must function before the next can be properly diagnosed.
